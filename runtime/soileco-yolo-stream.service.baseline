@@ -1,0 +1,17 @@
+[Unit]
+Description=SoilEco USB camera YOLO stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/soileco-yolo
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/soileco-yolo/.venv/bin/python /home/pi/soileco-yolo/soileco_yolo_stream.py --device /dev/v4l/by-id/usb-046d_C270_HD_WEBCAM_E8AE4D60-video-index0 --secondary-device /dev/v4l/by-id/usb-OmniVision_Technologies__Inc._USB_Camera-B4.09.24.1-video-index0 --width 640 --height 480 --fps 15 --imgsz 320 --infer-every 4 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
