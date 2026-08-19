@@ -7,10 +7,10 @@ Wants=network-online.target
 Type=simple
 User=pi
 Group=pi
-WorkingDirectory=/opt/soileco-camera/staging
+WorkingDirectory=/home/pi/soileco-camera-staging
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/opt/soileco-camera/staging/src:/opt/soileco-camera/staging/deploy
-ExecStart=/opt/soileco-camera/staging/.venv/bin/gunicorn --workers 1 --bind 127.0.0.1:8081 --access-logfile - --error-logfile - wsgi:app
+Environment=PYTHONPATH=/home/pi/soileco-camera-staging/src:/home/pi/soileco-camera-staging/deploy
+ExecStart=/home/pi/soileco-yolo/.venv/bin/gunicorn --workers 1 --bind 127.0.0.1:8081 --access-logfile - --error-logfile - wsgi:app
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

@@ -215,7 +215,7 @@ def create_app(
 
     @app.get("/healthz")
     def healthz():
-        lidar_error = lidar_state["error"] if lidar_state["mode"] == "error" else None
+        lidar_error = lidar_state["error"]
         healthy = state["camera_error"] is None and lidar_error is None
         payload = {"healthy": healthy, "model": args.model, "camera_error": state["camera_error"],
                    "lidar_error": lidar_error, "workers_started": start_workers}
