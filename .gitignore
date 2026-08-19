@@ -1,0 +1,29 @@
+# Secrets and cloud credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*
+
+# Python runtime and local state
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-*
+*.db
+
+# Captured media and model artifacts are stored outside Git
+data/
+captures/
+media/
+models/*.pt
+models/*.onnx
+models/*.tflite
+*.mp4
+*.avi
+*.mjpg
+*.jpg
+*.jpeg
+*.png
