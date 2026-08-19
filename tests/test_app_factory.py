@@ -49,8 +49,8 @@ class AppFactoryTests(unittest.TestCase):
             event_store=(connection, threading.Lock()),
         )
         response = app.test_client().get("/healthz")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual({"camera_error": None, "healthy": True, "lidar_error": None,
+        self.assertEqual(503, response.status_code)
+        self.assertEqual({"camera_error": None, "healthy": False, "lidar_error": "Waiting for scanner data",
                           "model": "test-model", "workers_started": False}, response.get_json())
 
 
