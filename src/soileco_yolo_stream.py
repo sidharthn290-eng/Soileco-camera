@@ -27,7 +27,7 @@ LIDAR_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Contr
 LIDAR_BAUD = 115200
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve a YOLO dashboard from a V4L2 camera.")
     parser.add_argument("--device", default="/dev/video0", help="V4L2 device (default: /dev/video0)")
     parser.add_argument("--secondary-device", default="/dev/video2", help="Second V4L2 camera to show as a raw stream; use empty string to disable")
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lidar-idle-seconds", type=int, default=600, help="LiDAR idle duration per cycle")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--smoke-test", action="store_true", help="Capture and infer one frame, then exit")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def now_text() -> str:
@@ -169,27 +169,29 @@ def dashboard_html() -> str:
     </script></body></html>"""
 
 
-def main() -> None:
-    args = parse_args()
+def create_app(
+    args: argparse.Namespace | None = None,
+    *,
+    start_workers: bool = True,
+    model=None,
+    camera=None,
+    event_store: tuple[sqlite3.Connection, threading.Lock] | None = None,
+) -> Flask:
+    """Create the dashboard application and optionally start its device workers."""
+    args = args or parse_args([])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Loading model %s", args.model)
-    model = YOLO(args.model)
-    camera = open_camera(args)
+    model = model if model is not None else YOLO(args.model)
+    camera = camera if camera is not None else open_camera(args)
     ok, frame = camera.read()
     if not ok:
         camera.release()
         raise RuntimeError("Camera opened but did not return a frame")
     if args.smoke_test:
-        started = time.monotonic()
-        detections = detect(model, frame, args)
-        output = Path("/home/pi/soileco-yolo/smoke-test.jpg")
-        if not cv2.imwrite(str(output), draw(frame, detections, "Smoke test")):
-            raise RuntimeError(f"Could not write {output}")
         camera.release()
-        print(f"SMOKE_TEST_OK seconds={time.monotonic()-started:.2f} detections={detections} image={output}")
-        return
+        raise ValueError("Smoke tests must use run_smoke_test(), not create_app()")
 
-    connection, db_lock = open_event_store()
+    connection, db_lock = event_store if event_store is not None else open_event_store()
     app = Flask(__name__)
     state = {"detections": [], "last_inference": None, "frame": 0, "camera_error": None, "updated_at": None, "device": args.device, "motion": 0.0}
     secondary_state = {"detections": [], "last_inference": None, "frame": 0, "error": None, "updated_at": None, "device": args.secondary_device, "motion": 0.0}
@@ -210,6 +212,14 @@ def main() -> None:
     @app.get("/status")
     def status():
         return jsonify({**state, "secondary": secondary_state, "lidar": lidar_state, "observations": list(observations.values()), "recent_events": recent_events(connection, db_lock)})
+
+    @app.get("/healthz")
+    def healthz():
+        lidar_error = lidar_state["error"] if lidar_state["mode"] == "error" else None
+        healthy = state["camera_error"] is None and lidar_error is None
+        payload = {"healthy": healthy, "model": args.model, "camera_error": state["camera_error"],
+                   "lidar_error": lidar_error, "workers_started": start_workers}
+        return jsonify(payload), 200 if healthy else 503
 
     def record(camera_name: str, detections: list[dict]) -> None:
         timestamp = now_text()
@@ -411,9 +421,39 @@ def main() -> None:
                 lidar_state.update(error=str(exc), mode="error", next_change_at=time.time() + 2)
                 time.sleep(2)
 
-    threading.Thread(target=capture_loop, name="camera-capture", daemon=True).start()
-    threading.Thread(target=secondary_loop, name="secondary-camera", daemon=True).start()
-    threading.Thread(target=lidar_loop, name="lidar-reader", daemon=True).start()
+    if start_workers:
+        threading.Thread(target=capture_loop, name="camera-capture", daemon=True).start()
+        threading.Thread(target=secondary_loop, name="secondary-camera", daemon=True).start()
+        threading.Thread(target=lidar_loop, name="lidar-reader", daemon=True).start()
+    app.extensions["soileco_runtime"] = {"camera": camera, "connection": connection, "workers_started": start_workers}
+    return app
+
+
+def run_smoke_test(args: argparse.Namespace) -> None:
+    logging.info("Loading model %s", args.model)
+    model = YOLO(args.model)
+    camera = open_camera(args)
+    try:
+        ok, frame = camera.read()
+        if not ok:
+            raise RuntimeError("Camera opened but did not return a frame")
+        started = time.monotonic()
+        detections = detect(model, frame, args)
+        output = Path("/home/pi/soileco-yolo/smoke-test.jpg")
+        if not cv2.imwrite(str(output), draw(frame, detections, "Smoke test")):
+            raise RuntimeError(f"Could not write {output}")
+        print(f"SMOKE_TEST_OK seconds={time.monotonic()-started:.2f} detections={detections} image={output}")
+    finally:
+        camera.release()
+
+
+def main() -> None:
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.smoke_test:
+        run_smoke_test(args)
+        return
+    app = create_app(args)
     logging.info("Starting dashboard at http://0.0.0.0:%d", args.port)
     app.run(host="0.0.0.0", port=args.port, threaded=True)
 
